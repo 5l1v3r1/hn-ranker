@@ -21,11 +21,12 @@ type Post struct {
 	Title string `json:"title"`
 	Time  int64  `json:"time"`
 	URL   string `json:"url"`
+	Score int    `json:"score"`
 }
 
 func FetchPosts(c Collection) (<-chan *Post, <-chan error) {
 	postChan := make(chan *Post)
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 
 	go func() {
 		defer close(postChan)
@@ -40,7 +41,7 @@ func FetchPosts(c Collection) (<-chan *Post, <-chan error) {
 		for _, id := range postList {
 			var p Post
 			intStr := strconv.FormatInt(id, 10)
-			if err := fetchAPIPage("item/"+intStr, &p); err != nil {
+			if err := fetchAPIPage("item/"+intStr+".json", &p); err != nil {
 				errChan <- err
 				return
 			}
