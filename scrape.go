@@ -40,7 +40,7 @@ func Scrape(inputFile, outputDir string) error {
 		if err != nil {
 			log.Printf("Error fetching %s: %s", post.URL, err.Error())
 		} else {
-			fileData := []byte(post.Title + "\n\n" + body)
+			fileData := []byte(body)
 			postName := strconv.FormatInt(post.ID, 10) + ".txt"
 			path := filepath.Join(outputDir, postName)
 			if err := ioutil.WriteFile(path, fileData, 0755); err != nil {
