@@ -32,6 +32,6 @@ func ScoresAbove(listFile string, threshold string) error {
 		total++
 	}
 
-	log.Printf("Matched %d/%d (%0.2f%%)", count, total, float64(count)/float64(total))
+	log.Printf("Matched %d/%d (%0.2f%%)", count, total, 100*float64(count)/float64(total))
 	return nil
 }

@@ -35,6 +35,6 @@ func dieUsage() {
 		`Usage: hn-ranker stories <output.json>
        hn-ranker scrape <input.json> <output-dir>
        hn-ranker train <list.json> <post-dir> <classifier-out.json>
-	   hn-ranker scoresabove <list.json> <score>`)
+       hn-ranker scoresabove <list.json> <score>`)
 	os.Exit(1)
 }
