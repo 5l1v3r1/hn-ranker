@@ -21,6 +21,7 @@ type Post struct {
 	Title string `json:"title"`
 	Time  int64  `json:"time"`
 	URL   string `json:"url"`
+	ID    int64  `json:"id"`
 	Score int    `json:"score"`
 }
 

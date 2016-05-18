@@ -14,8 +14,8 @@ func main() {
 	var err error
 	if os.Args[1] == "listposts" && len(os.Args) == 3 {
 		err = ListPosts(os.Args[2])
-	} else if os.Args[1] == "fetchposts" && len(os.Args) == 4 {
-		err = errors.New("not yet implemented")
+	} else if os.Args[1] == "scrape" && len(os.Args) == 4 {
+		err = Scrape(os.Args[2], os.Args[3])
 	} else if os.Args[1] == "train" && len(os.Args) == 4 {
 		err = errors.New("not yet implemented")
 	} else {
@@ -31,7 +31,7 @@ func main() {
 func dieUsage() {
 	fmt.Fprintln(os.Stderr,
 		`Usage: hn-ranker listposts <output.json>
-       hn-ranker fetchposts <input.json> <output-dir>
+       hn-ranker scrape <input.json> <output-dir>
        hn-ranker train <post-dir> <trained.json>`)
 	os.Exit(1)
 }
