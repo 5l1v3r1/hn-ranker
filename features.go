@@ -2,8 +2,18 @@ package main
 
 import (
 	"strings"
+	"time"
 	"unicode"
 )
+
+// TimeOfDay is an integer between 0 and 23
+// indicating the hour of a given timestamp.
+type TimeOfDay int
+
+// TimeOfWeek is an integer between 0 and 6
+// indicating the day of the week of a given
+// timestamp, starting on Sunday.
+type TimeOfWeek int
 
 // Features describes the format of a
 // feature vector.
@@ -13,7 +23,51 @@ type Features struct {
 	HostNames       []string
 }
 
-func ExtractKeywords(content string) map[string]float64 {
+// A Sample contains the raw information
+// about a story.
+type Sample struct {
+	Title    string
+	Content  string
+	HostName string
+
+	DayTime  TimeOfDay
+	WeekTime TimeOfWeek
+}
+
+func NewSample(title, content, hostName string, time time.Time) *Sample {
+	return &Sample{
+		Title:    title,
+		Content:  content,
+		HostName: hostName,
+		DayTime:  TimeOfDay(time.Hour()),
+		WeekTime: TimeOfWeek(time.Weekday()),
+	}
+}
+
+func (s *Sample) FeatureVector(features *Features) []float64 {
+	res := make([]float64, 0, len(features.TitleKeywords)+len(features.ContentKeywords)+
+		len(features.HostNames)+24+7)
+	titleKeywords := extractKeywords(s.Title)
+	contentKeywords := extractKeywords(s.Content)
+	for i, x := range features.ContentKeywords {
+		res[i] = contentKeywords[x]
+	}
+	for i, x := range features.TitleKeywords {
+		res[i+len(features.ContentKeywords)] = titleKeywords[x]
+	}
+	for i, host := range features.HostNames {
+		if host == s.HostName {
+			res[i+len(features.ContentKeywords)+len(features.TitleKeywords)] = 1
+		}
+	}
+	offset := len(features.TitleKeywords) + len(features.ContentKeywords) +
+		len(features.HostNames)
+	res[offset+int(s.DayTime)] = 1
+	res[offset+24+int(s.WeekTime)] = 1
+	return res
+}
+
+func extractKeywords(content string) map[string]float64 {
 	counts := map[string]int{}
 	extractLetterKeywords(content, counts)
 	for _, word := range strings.Fields(content) {
