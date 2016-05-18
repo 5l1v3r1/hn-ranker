@@ -20,14 +20,14 @@ const SpoofedUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) " +
 	"AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/7046A194A"
 
 func Scrape(inputFile, outputDir string) error {
-	var obj map[string][]Post
+	var list []*StoryItem
 
 	inputData, err := ioutil.ReadFile(inputFile)
 	if err != nil {
 		return err
 	}
 
-	if err := json.Unmarshal(inputData, &obj); err != nil {
+	if err := json.Unmarshal(inputData, &list); err != nil {
 		return err
 	}
 
@@ -35,18 +35,16 @@ func Scrape(inputFile, outputDir string) error {
 		return err
 	}
 
-	for _, list := range obj {
-		for _, post := range list {
-			body, err := fetchArticleBody(post.URL)
-			if err != nil {
-				log.Printf("Error fetching %s: %s", post.URL, err.Error())
-			} else {
-				fileData := []byte(post.Title + "\n\n" + body)
-				postName := strconv.FormatInt(post.ID, 10) + ".txt"
-				path := filepath.Join(outputDir, postName)
-				if err := ioutil.WriteFile(path, fileData, 0755); err != nil {
-					return err
-				}
+	for _, post := range list {
+		body, err := fetchArticleBody(post.URL)
+		if err != nil {
+			log.Printf("Error fetching %s: %s", post.URL, err.Error())
+		} else {
+			fileData := []byte(post.Title + "\n\n" + body)
+			postName := strconv.FormatInt(post.ID, 10) + ".txt"
+			path := filepath.Join(outputDir, postName)
+			if err := ioutil.WriteFile(path, fileData, 0755); err != nil {
+				return err
 			}
 		}
 	}
