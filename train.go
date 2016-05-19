@@ -42,6 +42,8 @@ func Train(storyListFile, postDump, classifierOut string) error {
 		return err
 	}
 
+	stories = stories[:100]
+
 	log.Println("Reading story data...")
 	storyData, scores := loadStoryData(stories, postDump)
 
@@ -178,19 +180,24 @@ func makeFeatureVectors(data []*StoryData, m *FeatureMap) []FeatureVector {
 
 func trainNetwork(n *neuralnet.Network, f []FeatureVector, scores []int, c *trainConfig,
 	cancel <-chan struct{}) {
+	n.Randomize()
+	classes := make([]int, len(scores))
+	for i, score := range scores {
+		var class int
+		for _, c := range outputScoreCutoffs {
+			if score >= c {
+				class++
+			}
+		}
+		classes[i] = class
+	}
 	for {
+		rightCount := classifierNumRight(n, f, classes)
+		log.Printf("Getting %d out of %d", rightCount, len(classes))
 		perm := rand.Perm(len(f))
 		for _, x := range perm {
 			story := f[x]
-			score := scores[x]
-
-			var class int
-			for _, c := range outputScoreCutoffs {
-				if score >= c {
-					class++
-				}
-			}
-
+			class := classes[x]
 			sgdStepStory(n, story, class, c)
 			select {
 			case <-cancel:
@@ -223,6 +230,32 @@ func sgdStepStory(n *neuralnet.Network, f FeatureVector, class int, c *trainConf
 	n.PropagateBackward(false)
 
 	n.StepGradient(-c.StepSize)
+}
+
+func classifierNumRight(n *neuralnet.Network, f []FeatureVector, classes []int) int {
+	var rightCount int
+	for i, x := range f {
+		inputVec := n.Input()
+		for i := range inputVec {
+			inputVec[i] = 0
+		}
+		for _, v := range x {
+			inputVec[v.Index] = v.Value
+		}
+		n.PropagateForward()
+		var outputClass int
+		var maxOutput float64
+		for j, out := range n.Output() {
+			if out > maxOutput {
+				maxOutput = out
+				outputClass = j
+			}
+		}
+		if outputClass == classes[i] {
+			rightCount++
+		}
+	}
+	return rightCount
 }
 
 type trainConfig struct {
