@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yhat/scrape"
 	"golang.org/x/net/html"
@@ -23,6 +24,7 @@ const (
 		"AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/7046A194A"
 
 	SimultaneousReqCount = 10
+	RequestTimeout       = time.Second * 20
 )
 
 var scrapeClient http.Client
@@ -34,6 +36,7 @@ func Scrape(inputFile, outputDir string) error {
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
+		Timeout: RequestTimeout,
 	}
 
 	var list []*StoryItem
