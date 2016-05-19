@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"io/ioutil"
 	"log"
@@ -10,14 +11,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/yhat/scrape"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
 
-const SpoofedUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) " +
-	"AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/7046A194A"
+const (
+	SpoofedUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) " +
+		"AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/7046A194A"
+
+	SimultaneousReqCount = 10
+)
 
 func Scrape(inputFile, outputDir string) error {
 	var list []*StoryItem
@@ -31,23 +37,39 @@ func Scrape(inputFile, outputDir string) error {
 		return err
 	}
 
-	if err := os.Mkdir(outputDir, 0755); err != nil {
-		return err
+	os.Mkdir(outputDir, 0755)
+
+	postChan := make(chan *StoryItem)
+	var wg sync.WaitGroup
+	for i := 0; i < SimultaneousReqCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for post := range postChan {
+				postName := strconv.FormatInt(post.ID, 10) + ".txt"
+				postPath := filepath.Join(outputDir, postName)
+
+				if _, err := os.Stat(postPath); err == nil || post.URL == "" {
+					continue
+				}
+
+				body, err := fetchArticleBody(post.URL)
+				if err != nil {
+					log.Printf("Error fetching %s: %s", post.URL, err.Error())
+				} else {
+					fileData := []byte(body)
+					ioutil.WriteFile(postPath, fileData, 0755)
+				}
+			}
+		}()
 	}
 
 	for _, post := range list {
-		body, err := fetchArticleBody(post.URL)
-		if err != nil {
-			log.Printf("Error fetching %s: %s", post.URL, err.Error())
-		} else {
-			fileData := []byte(body)
-			postName := strconv.FormatInt(post.ID, 10) + ".txt"
-			path := filepath.Join(outputDir, postName)
-			if err := ioutil.WriteFile(path, fileData, 0755); err != nil {
-				return err
-			}
-		}
+		postChan <- post
 	}
+	close(postChan)
+
+	wg.Wait()
 
 	return nil
 }
@@ -60,7 +82,12 @@ func fetchArticleBody(urlStr string) (string, error) {
 	req.Header.Set("User-Agent", SpoofedUserAgent)
 
 	cookies, _ := cookiejar.New(nil)
-	client := http.Client{Jar: cookies}
+	client := http.Client{
+		Jar: cookies,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
