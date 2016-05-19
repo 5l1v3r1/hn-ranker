@@ -6,66 +6,77 @@ import (
 	"unicode"
 )
 
-// TimeOfDay is an integer between 0 and 23
-// indicating the hour of a given timestamp.
-type TimeOfDay int
-
-// TimeOfWeek is an integer between 0 and 6
-// indicating the day of the week of a given
-// timestamp, starting on Sunday.
-type TimeOfWeek int
-
-// Features describes the format of a
-// feature vector.
-type Features struct {
+// A FeatureMap describes how to map data from
+// a story to a vector of scalers.
+type FeatureMap struct {
 	TitleKeywords   []string
 	ContentKeywords []string
 	HostNames       []string
 }
 
-// A Sample contains the raw information
-// about a story.
-type Sample struct {
+func (f *FeatureMap) VectorSize() int {
+	// Room for all tokens, the day of week, and the hour of day.
+	return len(f.TitleKeywords) + len(f.ContentKeywords) + len(f.HostNames) + 24 + 7
+}
+
+// StoryData contains the raw data of a story,
+// before it is converter into a feature vector.
+type StoryData struct {
 	Title    string
 	Content  string
 	HostName string
-
-	DayTime  TimeOfDay
-	WeekTime TimeOfWeek
-
-	Score int
+	Time     time.Time
 }
 
-func NewSample(title, content, hostName string, time time.Time) *Sample {
-	return &Sample{
-		Title:    title,
-		Content:  content,
-		HostName: hostName,
-		DayTime:  TimeOfDay(time.Hour()),
-		WeekTime: TimeOfWeek(time.Weekday()),
-	}
+type FeatureValue struct {
+	Index int
+	Value float64
 }
 
-func (s *Sample) FeatureVector(features *Features) []float64 {
-	res := make([]float64, len(features.TitleKeywords)+len(features.ContentKeywords)+
-		len(features.HostNames)+24+7)
-	titleKeywords := extractKeywords(s.Title)
-	contentKeywords := extractKeywords(s.Content)
-	for i, x := range features.ContentKeywords {
-		res[i] = contentKeywords[x]
-	}
-	for i, x := range features.TitleKeywords {
-		res[i+len(features.ContentKeywords)] = titleKeywords[x]
-	}
-	for i, host := range features.HostNames {
-		if host == s.HostName {
-			res[i+len(features.ContentKeywords)+len(features.TitleKeywords)] = 1
+// A FeatureVector is a vector of scaler values.
+// It is represented as an array of index-value
+// pairs, which are sorted by index.
+// This is done to allow sparsity: if an index is
+// not present, its corresponding value is assumed
+// to be 0.
+type FeatureVector []FeatureValue
+
+func NewFeatureVector(data *StoryData, m *FeatureMap) FeatureVector {
+	var res FeatureVector
+
+	titleKeywords := extractKeywords(data.Title)
+	contentKeywords := extractKeywords(data.Content)
+	for i, x := range m.ContentKeywords {
+		val, ok := contentKeywords[x]
+		if ok {
+			res = append(res, FeatureValue{i, val})
 		}
 	}
-	offset := len(features.TitleKeywords) + len(features.ContentKeywords) +
-		len(features.HostNames)
-	res[offset+int(s.DayTime)] = 1
-	res[offset+24+int(s.WeekTime)] = 1
+	startIdx := len(m.ContentKeywords)
+	for i, x := range m.TitleKeywords {
+		val, ok := titleKeywords[x]
+		if ok {
+			res = append(res, FeatureValue{startIdx + i, val})
+		}
+	}
+	startIdx += len(m.TitleKeywords)
+	for i, host := range m.HostNames {
+		if host == data.HostName {
+			res = append(res, FeatureValue{startIdx + i, 1})
+			break
+		}
+	}
+
+	startIdx += len(m.HostNames)
+
+	dayTime := data.Time.Hour()
+	res = append(res, FeatureValue{startIdx + dayTime, 1})
+
+	startIdx += 24
+
+	weekTime := int(data.Time.Weekday())
+	res = append(res, FeatureValue{startIdx + weekTime, 1})
+
 	return res
 }
 

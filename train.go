@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -17,7 +19,10 @@ import (
 
 var outputScoreCutoffs = []int{2, 5, 10, 50}
 
-const maxEpochs = 100000
+const (
+	maxEpochs       = 100000
+	keywordUbiquity = 2
+)
 
 func Train(storyListFile, postDump, classifierOut string) error {
 	config, err := getTrainConfig()
@@ -37,19 +42,35 @@ func Train(storyListFile, postDump, classifierOut string) error {
 		return err
 	}
 
-	log.Println("Generating features and reading samples...")
+	log.Println("Reading story data...")
+	storyData, scores := loadStoryData(stories, postDump)
 
-	samples, features := samplesAndFeatures(stories, postDump)
-	featureVecs := make([][]float64, len(samples))
-	for i, s := range samples {
-		featureVecs[i] = s.FeatureVector(features)
-	}
+	log.Println("Creating feature map...")
+	features := makeFeatureMap(storyData)
+	log.Printf("Counts: %d content, %d title, %d hostname",
+		len(features.ContentKeywords), len(features.TitleKeywords), len(features.HostNames))
 
-	network, trainer := networkAndTrainer(samples, featureVecs, config)
+	log.Println("Making feature vectors...")
+	vecs := makeFeatureVectors(storyData, features)
+
+	log.Println("Making network...")
+	network := makeNetwork(features, config)
 
 	log.Println("Training...")
 
-	trainer.TrainInteractive(network)
+	killChan := make(chan struct{})
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		<-c
+		signal.Stop(c)
+		fmt.Println("\nCaught interrupt. Ctrl+C again to terminate.")
+		close(killChan)
+	}()
+
+	trainNetwork(network, vecs, scores, config, killChan)
+
+	log.Println("Saving classifier...")
 
 	classifier := &Classifier{
 		Features: features,
@@ -61,12 +82,7 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	return ioutil.WriteFile(classifierOut, data, 0755)
 }
 
-func samplesAndFeatures(stories []*StoryItem, postDump string) ([]*Sample, *Features) {
-	seenContentKeywords := map[string]bool{}
-	seenTitleKeywords := map[string]bool{}
-	seenHostNames := map[string]bool{}
-
-	samples := make([]*Sample, 0, len(stories))
+func loadStoryData(stories []*StoryItem, postDump string) (data []*StoryData, scores []int) {
 	for _, story := range stories {
 		fileName := strconv.FormatInt(story.ID, 10) + ".txt"
 		postFile := filepath.Join(postDump, fileName)
@@ -74,21 +90,36 @@ func samplesAndFeatures(stories []*StoryItem, postDump string) ([]*Sample, *Feat
 		if err != nil {
 			continue
 		}
+
 		var hostString string
 		if parsedURL, _ := url.Parse(story.URL); parsedURL != nil {
 			hostString = parsedURL.Host
-			seenHostNames[hostString] = true
 		}
-		time := time.Unix(story.Time, 0)
-		sample := NewSample(story.Title, string(contents), hostString, time)
-		sample.Score = story.Score
-		samples = append(samples, sample)
 
-		for key := range extractKeywords(string(contents)) {
-			seenContentKeywords[key] = true
+		storyData := &StoryData{
+			Title:    story.Title,
+			Content:  string(contents),
+			HostName: hostString,
+			Time:     time.Unix(story.Time, 0),
 		}
-		for key := range extractKeywords(story.Title) {
-			seenTitleKeywords[key] = true
+		data = append(data, storyData)
+		scores = append(scores, story.Score)
+	}
+	return
+}
+
+func makeFeatureMap(data []*StoryData) *FeatureMap {
+	seenContentKeywords := map[string]int{}
+	seenTitleKeywords := map[string]bool{}
+	seenHostNames := map[string]bool{}
+
+	for _, storyData := range data {
+		seenHostNames[storyData.HostName] = true
+		for keyword := range extractKeywords(storyData.Content) {
+			seenContentKeywords[keyword]++
+		}
+		for keyword := range extractKeywords(storyData.Title) {
+			seenTitleKeywords[keyword] = true
 		}
 	}
 
@@ -96,8 +127,10 @@ func samplesAndFeatures(stories []*StoryItem, postDump string) ([]*Sample, *Feat
 	titleKeywords := make([]string, 0, len(seenTitleKeywords))
 	hostNames := make([]string, 0, len(seenHostNames))
 
-	for key := range seenContentKeywords {
-		contentKeywords = append(contentKeywords, key)
+	for key, count := range seenContentKeywords {
+		if count >= keywordUbiquity {
+			contentKeywords = append(contentKeywords, key)
+		}
 	}
 	for key := range seenTitleKeywords {
 		titleKeywords = append(titleKeywords, key)
@@ -106,26 +139,23 @@ func samplesAndFeatures(stories []*StoryItem, postDump string) ([]*Sample, *Feat
 		hostNames = append(hostNames, key)
 	}
 
-	features := &Features{
+	return &FeatureMap{
 		TitleKeywords:   titleKeywords,
 		ContentKeywords: contentKeywords,
 		HostNames:       hostNames,
 	}
-
-	return samples, features
 }
 
-func networkAndTrainer(samples []*Sample, vecs [][]float64,
-	config *trainConfig) (*neuralnet.Network, *neuralnet.SGD) {
+func makeNetwork(m *FeatureMap, c *trainConfig) *neuralnet.Network {
 	network, err := neuralnet.NewNetwork([]neuralnet.LayerPrototype{
 		&neuralnet.DenseParams{
 			Activation:  neuralnet.Sigmoid{},
-			InputCount:  len(vecs[0]),
-			OutputCount: config.HiddenCount,
+			InputCount:  m.VectorSize(),
+			OutputCount: c.HiddenCount,
 		},
 		&neuralnet.DenseParams{
 			Activation:  neuralnet.Sigmoid{},
-			InputCount:  config.HiddenCount,
+			InputCount:  c.HiddenCount,
 			OutputCount: len(outputScoreCutoffs) + 1,
 		},
 	})
@@ -133,26 +163,66 @@ func networkAndTrainer(samples []*Sample, vecs [][]float64,
 		fmt.Fprintln(os.Stderr, "Could not create network:", err)
 		os.Exit(1)
 	}
+	network.SetInput(make([]float64, m.VectorSize()))
+	network.SetDownstreamGradient(make([]float64, len(network.Output())))
+	return network
+}
 
-	outputs := make([][]float64, len(vecs))
-	for i, sample := range samples {
-		var idx int
-		for idx < len(outputScoreCutoffs) && sample.Score > outputScoreCutoffs[idx] {
-			idx++
+func makeFeatureVectors(data []*StoryData, m *FeatureMap) []FeatureVector {
+	res := make([]FeatureVector, len(data))
+	for i, s := range data {
+		res[i] = NewFeatureVector(s, m)
+	}
+	return res
+}
+
+func trainNetwork(n *neuralnet.Network, f []FeatureVector, scores []int, c *trainConfig,
+	cancel <-chan struct{}) {
+	for {
+		perm := rand.Perm(len(f))
+		for _, x := range perm {
+			story := f[x]
+			score := scores[x]
+
+			var class int
+			for _, c := range outputScoreCutoffs {
+				if score >= c {
+					class++
+				}
+			}
+
+			sgdStepStory(n, story, class, c)
+			select {
+			case <-cancel:
+				return
+			default:
+			}
 		}
-		outputs[i] = make([]float64, len(outputScoreCutoffs)+1)
-		outputs[i][idx] = 1
+	}
+}
+
+func sgdStepStory(n *neuralnet.Network, f FeatureVector, class int, c *trainConfig) {
+	inputVec := n.Input()
+	downstream := n.DownstreamGradient()
+
+	for i := range inputVec {
+		inputVec[i] = 0
+	}
+	for _, v := range f {
+		inputVec[v.Index] = v.Value
 	}
 
-	sgd := &neuralnet.SGD{
-		CostFunc: neuralnet.MeanSquaredCost{},
-		Inputs:   vecs,
-		Outputs:  outputs,
-		StepSize: config.StepSize,
-		Epochs:   maxEpochs,
-	}
+	n.PropagateForward()
 
-	return network, sgd
+	expected := make([]float64, len(downstream))
+	expected[class] = 1
+
+	costFunc := neuralnet.MeanSquaredCost{}
+	costFunc.Deriv(n, expected, downstream)
+
+	n.PropagateBackward(false)
+
+	n.StepGradient(-c.StepSize)
 }
 
 type trainConfig struct {

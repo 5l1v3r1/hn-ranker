@@ -7,13 +7,13 @@ import (
 )
 
 type Classifier struct {
-	Features *Features
+	Features *FeatureMap
 	Network  *neuralnet.Network
 }
 
 func DecodeClassifier(d []byte) (*Classifier, error) {
 	var s struct {
-		Features *Features
+		Features *FeatureMap
 		NetData  []byte
 	}
 	if err := json.Unmarshal(d, &s); err != nil {
@@ -31,7 +31,7 @@ func DecodeClassifier(d []byte) (*Classifier, error) {
 
 func (c *Classifier) Encode() []byte {
 	var s struct {
-		Features *Features
+		Features *FeatureMap
 		NetData  []byte
 	}
 	s.Features = c.Features
