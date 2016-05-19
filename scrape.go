@@ -25,7 +25,17 @@ const (
 	SimultaneousReqCount = 10
 )
 
+var scrapeClient http.Client
+
 func Scrape(inputFile, outputDir string) error {
+	cookies, _ := cookiejar.New(nil)
+	scrapeClient = http.Client{
+		Jar: cookies,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
 	var list []*StoryItem
 
 	inputData, err := ioutil.ReadFile(inputFile)
@@ -80,16 +90,9 @@ func fetchArticleBody(urlStr string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", SpoofedUserAgent)
+	req.Close = true
 
-	cookies, _ := cookiejar.New(nil)
-	client := http.Client{
-		Jar: cookies,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
-
-	resp, err := client.Do(req)
+	resp, err := scrapeClient.Do(req)
 	if err != nil {
 		return "", err
 	}
