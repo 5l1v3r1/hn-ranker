@@ -6,15 +6,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"time"
-
-	"github.com/unixpickle/weakai/neuralnet"
 )
 
 var outputScoreCutoffs = []int{2, 5, 10, 50}
@@ -25,11 +21,6 @@ const (
 )
 
 func Train(storyListFile, postDump, classifierOut string) error {
-	config, err := getTrainConfig()
-	if err != nil {
-		return err
-	}
-
 	log.Println("Parsing story list...")
 
 	storyFile, err := ioutil.ReadFile(storyListFile)
@@ -41,7 +32,6 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	if err := json.Unmarshal(storyFile, &stories); err != nil {
 		return err
 	}
-
 	stories = stories[:100]
 
 	log.Println("Reading story data...")
@@ -52,36 +42,24 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	log.Printf("Counts: %d content, %d title, %d hostname",
 		len(features.ContentKeywords), len(features.TitleKeywords), len(features.HostNames))
 
+	log.Println("Initializing classifier...")
+	classifier, err := makeClassifier(features)
+	if err != nil {
+		return err
+	}
+
 	log.Println("Making feature vectors...")
 	vecs := makeFeatureVectors(storyData, features)
 
-	log.Println("Making network...")
-	network := makeNetwork(features, config)
-
 	log.Println("Training...")
-
-	killChan := make(chan struct{})
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt)
-		<-c
-		signal.Stop(c)
-		fmt.Println("\nCaught interrupt. Ctrl+C again to terminate.")
-		close(killChan)
-	}()
-
-	trainNetwork(network, vecs, scores, config, killChan)
+	classifier.Train(vecs, makeClasses(scores))
 
 	log.Println("Saving classifier...")
-
-	classifier := &Classifier{
-		Features: features,
-		Network:  network,
-	}
-
-	data := classifier.Encode()
-
-	return ioutil.WriteFile(classifierOut, data, 0755)
+	// TODO: encode classifier and feature map and
+	// save it all to one file.
+	//data := classifier.Serialize()
+	//return ioutil.WriteFile(classifierOut, data, 0755)
+	return errors.New("not yet implemented")
 }
 
 func loadStoryData(stories []*StoryItem, postDump string) (data []*StoryData, scores []int) {
@@ -148,26 +126,20 @@ func makeFeatureMap(data []*StoryData) *FeatureMap {
 	}
 }
 
-func makeNetwork(m *FeatureMap, c *trainConfig) *neuralnet.Network {
-	network, err := neuralnet.NewNetwork([]neuralnet.LayerPrototype{
-		&neuralnet.DenseParams{
-			Activation:  neuralnet.Sigmoid{},
-			InputCount:  m.VectorSize(),
-			OutputCount: c.HiddenCount,
-		},
-		&neuralnet.DenseParams{
-			Activation:  neuralnet.Sigmoid{},
-			InputCount:  c.HiddenCount,
-			OutputCount: len(outputScoreCutoffs) + 1,
-		},
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not create network:", err)
-		os.Exit(1)
+func makeClassifier(features *FeatureMap) (TrainableClassifier, error) {
+	classifierName := os.Getenv(ClassifierNameEnvVar)
+	if classifierName == "" {
+		return nil, fmt.Errorf("missing %s environment variable", ClassifierNameEnvVar)
 	}
-	network.SetInput(make([]float64, m.VectorSize()))
-	network.SetDownstreamGradient(make([]float64, len(network.Output())))
-	return network
+	maker, ok := ClassifierMakers[classifierName]
+	if !ok {
+		return nil, fmt.Errorf("invalid classifier name: %s", classifierName)
+	}
+	classifier, err := maker(features)
+	if err != nil {
+		return nil, err
+	}
+	return classifier, nil
 }
 
 func makeFeatureVectors(data []*StoryData, m *FeatureMap) []FeatureVector {
@@ -178,9 +150,7 @@ func makeFeatureVectors(data []*StoryData, m *FeatureMap) []FeatureVector {
 	return res
 }
 
-func trainNetwork(n *neuralnet.Network, f []FeatureVector, scores []int, c *trainConfig,
-	cancel <-chan struct{}) {
-	n.Randomize()
+func makeClasses(scores []int) []int {
 	classes := make([]int, len(scores))
 	for i, score := range scores {
 		var class int
@@ -191,89 +161,5 @@ func trainNetwork(n *neuralnet.Network, f []FeatureVector, scores []int, c *trai
 		}
 		classes[i] = class
 	}
-	for {
-		rightCount := classifierNumRight(n, f, classes)
-		log.Printf("Getting %d out of %d", rightCount, len(classes))
-		perm := rand.Perm(len(f))
-		for _, x := range perm {
-			story := f[x]
-			class := classes[x]
-			sgdStepStory(n, story, class, c)
-			select {
-			case <-cancel:
-				return
-			default:
-			}
-		}
-	}
-}
-
-func sgdStepStory(n *neuralnet.Network, f FeatureVector, class int, c *trainConfig) {
-	inputVec := n.Input()
-	downstream := n.DownstreamGradient()
-
-	for i := range inputVec {
-		inputVec[i] = 0
-	}
-	for _, v := range f {
-		inputVec[v.Index] = v.Value
-	}
-
-	n.PropagateForward()
-
-	expected := make([]float64, len(downstream))
-	expected[class] = 1
-
-	costFunc := neuralnet.MeanSquaredCost{}
-	costFunc.Deriv(n, expected, downstream)
-
-	n.PropagateBackward(false)
-
-	n.StepGradient(-c.StepSize)
-}
-
-func classifierNumRight(n *neuralnet.Network, f []FeatureVector, classes []int) int {
-	var rightCount int
-	for i, x := range f {
-		inputVec := n.Input()
-		for i := range inputVec {
-			inputVec[i] = 0
-		}
-		for _, v := range x {
-			inputVec[v.Index] = v.Value
-		}
-		n.PropagateForward()
-		var outputClass int
-		var maxOutput float64
-		for j, out := range n.Output() {
-			if out > maxOutput {
-				maxOutput = out
-				outputClass = j
-			}
-		}
-		if outputClass == classes[i] {
-			rightCount++
-		}
-	}
-	return rightCount
-}
-
-type trainConfig struct {
-	HiddenCount int
-	StepSize    float64
-}
-
-func getTrainConfig() (*trainConfig, error) {
-	count, err := strconv.Atoi(os.Getenv("NEURALNET_HIDDEN_COUNT"))
-	if err != nil {
-		return nil, errors.New("missing NEURALNET_HIDDEN_COUNT env var")
-	}
-	stepSize, err := strconv.ParseFloat(os.Getenv("NEURALNET_STEP_SIZE"), 64)
-	if err != nil {
-		return nil, errors.New("missing NEURALNET_STEP_SIZE env var")
-	}
-	return &trainConfig{
-		HiddenCount: count,
-		StepSize:    stepSize,
-	}, nil
+	return classes
 }

@@ -1,41 +1,26 @@
 package main
 
-import (
-	"encoding/json"
-
-	"github.com/unixpickle/weakai/neuralnet"
-)
-
-type Classifier struct {
-	Features *FeatureMap
-	Network  *neuralnet.Network
+type Classifier interface {
+	Serialize() []byte
+	Classify(vec FeatureVector) int
 }
 
-func DecodeClassifier(d []byte) (*Classifier, error) {
-	var s struct {
-		Features *FeatureMap
-		NetData  []byte
-	}
-	if err := json.Unmarshal(d, &s); err != nil {
-		return nil, err
-	}
-	network, err := neuralnet.DeserializeNetwork(s.NetData)
-	if err != nil {
-		return nil, err
-	}
-	return &Classifier{
-		Features: s.Features,
-		Network:  network,
-	}, nil
+type TrainableClassifier interface {
+	Classifier
+	Train(vecs []FeatureVector, classes []int)
 }
 
-func (c *Classifier) Encode() []byte {
-	var s struct {
-		Features *FeatureMap
-		NetData  []byte
-	}
-	s.Features = c.Features
-	s.NetData = c.Network.Serialize()
-	data, _ := json.Marshal(&s)
-	return data
+type ClassifierMaker func(m *FeatureMap) (TrainableClassifier, error)
+type Deserializer func(m *FeatureMap, d []byte) (Classifier, error)
+
+var ClassifierMakers = map[string]ClassifierMaker{
+	"neuralnet": func(m *FeatureMap) (TrainableClassifier, error) {
+		return NewNeuralNet(m)
+	},
+}
+
+var Deserializers = map[string]Deserializer{
+	"neuralnet": func(m *FeatureMap, d []byte) (Classifier, error) {
+		return DeserializeNeuralNet(m, d)
+	},
 }
