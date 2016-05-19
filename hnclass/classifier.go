@@ -1,6 +1,7 @@
-package main
+package hnclass
 
 type Classifier interface {
+	SerializerType() string
 	Serialize() []byte
 	Classify(vec FeatureVector) int
 }
@@ -10,12 +11,12 @@ type TrainableClassifier interface {
 	Train(vecs []FeatureVector, classes []int)
 }
 
-type ClassifierMaker func(m *FeatureMap) (TrainableClassifier, error)
+type ClassifierMaker func(m *FeatureMap, classCount int) (TrainableClassifier, error)
 type Deserializer func(m *FeatureMap, d []byte) (Classifier, error)
 
 var ClassifierMakers = map[string]ClassifierMaker{
-	"neuralnet": func(m *FeatureMap) (TrainableClassifier, error) {
-		return NewNeuralNet(m)
+	"neuralnet": func(m *FeatureMap, cc int) (TrainableClassifier, error) {
+		return NewNeuralNet(m, cc)
 	},
 }
 

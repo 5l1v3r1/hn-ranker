@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -11,13 +10,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/unixpickle/hn-ranker/hnclass"
 )
 
-var outputScoreCutoffs = []int{2, 5, 10, 50}
+var OutputScoreCutoffs = []int{2, 5, 10, 50}
 
 const (
-	maxEpochs       = 100000
-	keywordUbiquity = 2
+	ClassifierNameEnvVar = "HN_CLASSIFIER"
 )
 
 func Train(storyListFile, postDump, classifierOut string) error {
@@ -32,18 +32,17 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	if err := json.Unmarshal(storyFile, &stories); err != nil {
 		return err
 	}
-	stories = stories[:100]
 
 	log.Println("Reading story data...")
 	storyData, scores := loadStoryData(stories, postDump)
 
 	log.Println("Creating feature map...")
-	features := makeFeatureMap(storyData)
-	log.Printf("Counts: %d content, %d title, %d hostname",
+	features := hnclass.NewFeatureMap(storyData)
+	log.Printf("Feature counts: %d content, %d title, %d hostname",
 		len(features.ContentKeywords), len(features.TitleKeywords), len(features.HostNames))
 
 	log.Println("Initializing classifier...")
-	classifier, err := makeClassifier(features)
+	classifier, err := makeClassifier(features, len(OutputScoreCutoffs)+1)
 	if err != nil {
 		return err
 	}
@@ -55,14 +54,12 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	classifier.Train(vecs, makeClasses(scores))
 
 	log.Println("Saving classifier...")
-	// TODO: encode classifier and feature map and
-	// save it all to one file.
-	//data := classifier.Serialize()
-	//return ioutil.WriteFile(classifierOut, data, 0755)
-	return errors.New("not yet implemented")
+	data := hnclass.Serialize(classifier, features)
+	return ioutil.WriteFile(classifierOut, data, 0755)
 }
 
-func loadStoryData(stories []*StoryItem, postDump string) (data []*StoryData, scores []int) {
+func loadStoryData(stories []*StoryItem, postDump string) (data []*hnclass.StoryData,
+	scores []int) {
 	for _, story := range stories {
 		fileName := strconv.FormatInt(story.ID, 10) + ".txt"
 		postFile := filepath.Join(postDump, fileName)
@@ -76,7 +73,7 @@ func loadStoryData(stories []*StoryItem, postDump string) (data []*StoryData, sc
 			hostString = parsedURL.Host
 		}
 
-		storyData := &StoryData{
+		storyData := &hnclass.StoryData{
 			Title:    story.Title,
 			Content:  string(contents),
 			HostName: hostString,
@@ -88,64 +85,27 @@ func loadStoryData(stories []*StoryItem, postDump string) (data []*StoryData, sc
 	return
 }
 
-func makeFeatureMap(data []*StoryData) *FeatureMap {
-	seenContentKeywords := map[string]int{}
-	seenTitleKeywords := map[string]bool{}
-	seenHostNames := map[string]bool{}
-
-	for _, storyData := range data {
-		seenHostNames[storyData.HostName] = true
-		for keyword := range extractKeywords(storyData.Content) {
-			seenContentKeywords[keyword]++
-		}
-		for keyword := range extractKeywords(storyData.Title) {
-			seenTitleKeywords[keyword] = true
-		}
-	}
-
-	contentKeywords := make([]string, 0, len(seenContentKeywords))
-	titleKeywords := make([]string, 0, len(seenTitleKeywords))
-	hostNames := make([]string, 0, len(seenHostNames))
-
-	for key, count := range seenContentKeywords {
-		if count >= keywordUbiquity {
-			contentKeywords = append(contentKeywords, key)
-		}
-	}
-	for key := range seenTitleKeywords {
-		titleKeywords = append(titleKeywords, key)
-	}
-	for key := range seenHostNames {
-		hostNames = append(hostNames, key)
-	}
-
-	return &FeatureMap{
-		TitleKeywords:   titleKeywords,
-		ContentKeywords: contentKeywords,
-		HostNames:       hostNames,
-	}
-}
-
-func makeClassifier(features *FeatureMap) (TrainableClassifier, error) {
+func makeClassifier(features *hnclass.FeatureMap,
+	classCount int) (hnclass.TrainableClassifier, error) {
 	classifierName := os.Getenv(ClassifierNameEnvVar)
 	if classifierName == "" {
 		return nil, fmt.Errorf("missing %s environment variable", ClassifierNameEnvVar)
 	}
-	maker, ok := ClassifierMakers[classifierName]
+	maker, ok := hnclass.ClassifierMakers[classifierName]
 	if !ok {
 		return nil, fmt.Errorf("invalid classifier name: %s", classifierName)
 	}
-	classifier, err := maker(features)
+	classifier, err := maker(features, classCount)
 	if err != nil {
 		return nil, err
 	}
 	return classifier, nil
 }
 
-func makeFeatureVectors(data []*StoryData, m *FeatureMap) []FeatureVector {
-	res := make([]FeatureVector, len(data))
+func makeFeatureVectors(data []*hnclass.StoryData, m *hnclass.FeatureMap) []hnclass.FeatureVector {
+	res := make([]hnclass.FeatureVector, len(data))
 	for i, s := range data {
-		res[i] = NewFeatureVector(s, m)
+		res[i] = hnclass.NewFeatureVector(s, m)
 	}
 	return res
 }
@@ -154,7 +114,7 @@ func makeClasses(scores []int) []int {
 	classes := make([]int, len(scores))
 	for i, score := range scores {
 		var class int
-		for _, c := range outputScoreCutoffs {
+		for _, c := range OutputScoreCutoffs {
 			if score >= c {
 				class++
 			}

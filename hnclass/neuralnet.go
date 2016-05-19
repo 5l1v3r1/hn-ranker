@@ -1,4 +1,4 @@
-package main
+package hnclass
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ type NeuralNet struct {
 	network    *neuralnet.Network
 }
 
-func NewNeuralNet(m *FeatureMap) (*NeuralNet, error) {
+func NewNeuralNet(m *FeatureMap, classCount int) (*NeuralNet, error) {
 	config, err := getNeuralNetConfig()
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func NewNeuralNet(m *FeatureMap) (*NeuralNet, error) {
 		&neuralnet.DenseParams{
 			Activation:  neuralnet.Sigmoid{},
 			InputCount:  config.HiddenCount,
-			OutputCount: len(outputScoreCutoffs) + 1,
+			OutputCount: classCount,
 		},
 	})
 	if err != nil {
@@ -73,6 +73,10 @@ func (n *NeuralNet) Train(vecs []FeatureVector, classes []int) {
 
 func (n *NeuralNet) Serialize() []byte {
 	return n.network.Serialize()
+}
+
+func (n *NeuralNet) SerializerType() string {
+	return "neuralnet"
 }
 
 func (n *NeuralNet) Classify(vec FeatureVector) int {
