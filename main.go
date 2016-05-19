@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 )
@@ -17,7 +16,7 @@ func main() {
 	} else if os.Args[1] == "scrape" && len(os.Args) == 4 {
 		err = Scrape(os.Args[2], os.Args[3])
 	} else if os.Args[1] == "train" && len(os.Args) == 5 {
-		err = errors.New("not yet implemented")
+		err = Train(os.Args[2], os.Args[3], os.Args[4])
 	} else if os.Args[1] == "scoresabove" && len(os.Args) == 4 {
 		err = ScoresAbove(os.Args[2], os.Args[3])
 	} else {

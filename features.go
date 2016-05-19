@@ -32,6 +32,8 @@ type Sample struct {
 
 	DayTime  TimeOfDay
 	WeekTime TimeOfWeek
+
+	Score int
 }
 
 func NewSample(title, content, hostName string, time time.Time) *Sample {
@@ -45,7 +47,7 @@ func NewSample(title, content, hostName string, time time.Time) *Sample {
 }
 
 func (s *Sample) FeatureVector(features *Features) []float64 {
-	res := make([]float64, 0, len(features.TitleKeywords)+len(features.ContentKeywords)+
+	res := make([]float64, len(features.TitleKeywords)+len(features.ContentKeywords)+
 		len(features.HostNames)+24+7)
 	titleKeywords := extractKeywords(s.Title)
 	contentKeywords := extractKeywords(s.Content)
