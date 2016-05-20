@@ -1,11 +1,17 @@
 package hnclass
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+)
 
-// keywordUbiquity is the minimum number of stories
-// in which a content keyword must appear before it
-// is included in a feature map.
-const keywordUbiquity = 2
+const (
+	defaultContentUbiquity = 2
+	defaultTitleUbiquity   = 1
+	defaultHostUbiquity    = 1
+)
 
 // StoryData contains the raw data of a story,
 // before it is converter into a feature vector.
@@ -32,16 +38,16 @@ type FeatureMap struct {
 // stories in a list.
 func NewFeatureMap(stories []*StoryData) *FeatureMap {
 	seenContentKeywords := map[string]int{}
-	seenTitleKeywords := map[string]bool{}
-	seenHostNames := map[string]bool{}
+	seenTitleKeywords := map[string]int{}
+	seenHostNames := map[string]int{}
 
 	for _, storyData := range stories {
-		seenHostNames[storyData.HostName] = true
+		seenHostNames[storyData.HostName]++
 		for keyword := range extractKeywords(storyData.Content) {
 			seenContentKeywords[keyword]++
 		}
 		for keyword := range extractKeywords(storyData.Title) {
-			seenTitleKeywords[keyword] = true
+			seenTitleKeywords[keyword]++
 		}
 	}
 
@@ -49,16 +55,21 @@ func NewFeatureMap(stories []*StoryData) *FeatureMap {
 	titleKeywords := make([]string, 0, len(seenTitleKeywords))
 	hostNames := make([]string, 0, len(seenHostNames))
 
-	for key, count := range seenContentKeywords {
-		if count >= keywordUbiquity {
-			contentKeywords = append(contentKeywords, key)
+	ubiquities := []int{
+		getUbiquity(ContentUbiquityEnvVar, defaultContentUbiquity),
+		getUbiquity(TitleUbiquityEnvVar, defaultTitleUbiquity),
+		getUbiquity(HostUbiquityEnvVar, defaultHostUbiquity),
+	}
+	counts := []map[string]int{seenContentKeywords, seenTitleKeywords, seenHostNames}
+	slices := []*[]string{&contentKeywords, &titleKeywords, &hostNames}
+
+	for i, ubiquity := range ubiquities {
+		slice := slices[i]
+		for word, count := range counts[i] {
+			if count >= ubiquity {
+				(*slice) = append(*slice, word)
+			}
 		}
-	}
-	for key := range seenTitleKeywords {
-		titleKeywords = append(titleKeywords, key)
-	}
-	for key := range seenHostNames {
-		hostNames = append(hostNames, key)
 	}
 
 	return &FeatureMap{
@@ -139,4 +150,17 @@ func NewFeatureVector(data *StoryData, m *FeatureMap) FeatureVector {
 	}
 
 	return res
+}
+
+func getUbiquity(envVar string, defaultVal int) int {
+	if param := os.Getenv(envVar); param == "" {
+		return defaultVal
+	} else {
+		res, err := strconv.Atoi(param)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid %s environment variable", envVar)
+			os.Exit(1)
+		}
+		return res
+	}
 }
