@@ -22,6 +22,9 @@ type FeatureMap struct {
 	TitleKeywords   []string
 	ContentKeywords []string
 	HostNames       []string
+
+	Offset float64
+	Scale  float64
 }
 
 // NewFeatureMap generates a FeatureMap which
@@ -62,6 +65,12 @@ func NewFeatureMap(stories []*StoryData) *FeatureMap {
 		TitleKeywords:   titleKeywords,
 		ContentKeywords: contentKeywords,
 		HostNames:       hostNames,
+
+		// Computed under the assumption that no keywords
+		// were pruned, or at least that a small fraction
+		// of them were.
+		Offset: -2.5,
+		Scale:  0.4,
 	}
 }
 
@@ -123,6 +132,11 @@ func NewFeatureVector(data *StoryData, m *FeatureMap) FeatureVector {
 
 	weekTime := int(data.Time.Weekday())
 	res = append(res, FeatureValue{startIdx + weekTime, 1})
+
+	for i, x := range res {
+		x.Value = (x.Value - m.Offset) * m.Scale
+		res[i] = x
+	}
 
 	return res
 }
