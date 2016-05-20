@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 
 	"github.com/unixpickle/weakai/neuralnet"
 )
@@ -102,8 +103,7 @@ func (n *NeuralNet) Classify(vec FeatureVector) int {
 func (n *NeuralNet) train(vecs []FeatureVector, classes []int, cancel <-chan struct{}) {
 	n.network.Randomize()
 	for {
-		rightCount := n.rightCount(vecs, classes)
-		log.Printf("Getting %d out of %d", rightCount, len(classes))
+		log.Printf("Current results: %s", n.rightCounts(vecs, classes))
 		perm := rand.Perm(len(vecs))
 		for _, x := range perm {
 			story := vecs[x]
@@ -141,15 +141,24 @@ func (n *NeuralNet) sgdStepStory(f FeatureVector, class int) {
 	n.network.StepGradient(-n.trainConfig.StepSize)
 }
 
-func (n *NeuralNet) rightCount(vecs []FeatureVector, classes []int) int {
-	var count int
+func (n *NeuralNet) rightCounts(vecs []FeatureVector, classes []int) string {
+	rightMap := make([]int, len(n.network.Output()))
+	totalMap := make([]int, len(n.network.Output()))
+	var totalRight int
 	for i, vec := range vecs {
 		output := n.Classify(vec)
 		if output == classes[i] {
-			count++
+			rightMap[classes[i]]++
+			totalRight++
 		}
+		totalMap[classes[i]]++
 	}
-	return count
+	resStrs := make([]string, len(rightMap))
+	for i, right := range rightMap {
+		resStrs[i] = fmt.Sprintf("%d/%d", right, totalMap[i])
+	}
+	return fmt.Sprintf("%d/%d (classes: %s)", totalRight, len(classes),
+		strings.Join(resStrs, " "))
 }
 
 type neuralNetConfig struct {
