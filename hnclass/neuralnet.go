@@ -58,7 +58,7 @@ func DeserializeNeuralNet(m *FeatureMap, d []byte) (*NeuralNet, error) {
 	return &NeuralNet{featureMap: m, network: net}, nil
 }
 
-func (n *NeuralNet) Train(vecs []FeatureVector, classes []int) {
+func (n *NeuralNet) Train(training, crossValidation *TrainingData) {
 	killChan := make(chan struct{})
 	go func() {
 		c := make(chan os.Signal, 1)
@@ -69,7 +69,7 @@ func (n *NeuralNet) Train(vecs []FeatureVector, classes []int) {
 		close(killChan)
 	}()
 	log.Println("Press Ctrl+C to finish training.")
-	n.train(vecs, classes, killChan)
+	n.train(training, crossValidation, killChan)
 }
 
 func (n *NeuralNet) Serialize() []byte {
@@ -100,14 +100,18 @@ func (n *NeuralNet) Classify(vec FeatureVector) int {
 	return outputClass
 }
 
-func (n *NeuralNet) train(vecs []FeatureVector, classes []int, cancel <-chan struct{}) {
+func (n *NeuralNet) train(training, crossValidation *TrainingData, cancel <-chan struct{}) {
 	n.network.Randomize()
 	for {
-		log.Printf("Current results: %s", n.rightCounts(vecs, classes))
-		perm := rand.Perm(len(vecs))
+		crossScores := n.rightCounts(crossValidation.Vectors, crossValidation.Classes)
+		trainScores := n.rightCounts(training.Vectors, training.Classes)
+		log.Printf("Cross validation: %s", crossScores)
+		log.Printf("Training: %s", trainScores)
+
+		perm := rand.Perm(len(training.Vectors))
 		for _, x := range perm {
-			story := vecs[x]
-			class := classes[x]
+			story := training.Vectors[x]
+			class := training.Classes[x]
 			n.sgdStepStory(story, class)
 			select {
 			case <-cancel:

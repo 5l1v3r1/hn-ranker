@@ -1,5 +1,10 @@
 package hnclass
 
+type TrainingData struct {
+	Vectors []FeatureVector
+	Classes []int
+}
+
 type Classifier interface {
 	SerializerType() string
 	Serialize() []byte
@@ -8,7 +13,7 @@ type Classifier interface {
 
 type TrainableClassifier interface {
 	Classifier
-	Train(vecs []FeatureVector, classes []int)
+	Train(training, crossValidation *TrainingData)
 }
 
 type ClassifierMaker func(m *FeatureMap, classCount int) (TrainableClassifier, error)

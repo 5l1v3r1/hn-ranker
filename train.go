@@ -17,12 +17,23 @@ import (
 var OutputScoreCutoffs = []int{2, 5, 10, 50}
 
 const (
+	DefaultCrossFrac = 0.3
+
 	ClassifierNameEnvVar = "HN_CLASSIFIER"
+	CrossFracEnvVar      = "HN_CROSS_VALIDATION_FRAC"
 )
 
 func Train(storyListFile, postDump, classifierOut string) error {
-	log.Println("Parsing story list...")
+	crossFrac := DefaultCrossFrac
+	if cfVar := os.Getenv(CrossFracEnvVar); cfVar != "" {
+		var err error
+		crossFrac, err = strconv.ParseFloat(cfVar, 64)
+		if err != nil {
+			return fmt.Errorf("invalid %s environment variable", CrossFracEnvVar)
+		}
+	}
 
+	log.Println("Parsing story list...")
 	storyFile, err := ioutil.ReadFile(storyListFile)
 	if err != nil {
 		return err
@@ -47,11 +58,21 @@ func Train(storyListFile, postDump, classifierOut string) error {
 		return err
 	}
 
-	log.Println("Making feature vectors...")
+	log.Println("Making feature/class vectors...")
 	vecs := makeFeatureVectors(storyData, features)
+	classes := makeClasses(scores)
 
 	log.Println("Training...")
-	classifier.Train(vecs, makeClasses(scores))
+	crossCount := int(crossFrac * float64(len(vecs)))
+	trainingData := &hnclass.TrainingData{
+		Vectors: vecs[crossCount:],
+		Classes: classes[crossCount:],
+	}
+	crossData := &hnclass.TrainingData{
+		Vectors: vecs[:crossCount],
+		Classes: classes[:crossCount],
+	}
+	classifier.Train(trainingData, crossData)
 
 	log.Println("Saving classifier...")
 	data := hnclass.Serialize(classifier, features)
