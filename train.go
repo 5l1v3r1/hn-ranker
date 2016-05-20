@@ -34,13 +34,8 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	}
 
 	log.Println("Parsing story list...")
-	storyFile, err := ioutil.ReadFile(storyListFile)
+	stories, err := readStoryList(storyListFile)
 	if err != nil {
-		return err
-	}
-
-	var stories []*StoryItem
-	if err := json.Unmarshal(storyFile, &stories); err != nil {
 		return err
 	}
 
@@ -77,6 +72,20 @@ func Train(storyListFile, postDump, classifierOut string) error {
 	log.Println("Saving classifier...")
 	data := hnclass.Serialize(classifier, features)
 	return ioutil.WriteFile(classifierOut, data, 0755)
+}
+
+func readStoryList(listPath string) ([]*StoryItem, error) {
+	storyFile, err := ioutil.ReadFile(listPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var stories []*StoryItem
+	if err := json.Unmarshal(storyFile, &stories); err != nil {
+		return nil, err
+	}
+
+	return stories, nil
 }
 
 func loadStoryData(stories []*StoryItem, postDump string) (data []*hnclass.StoryData,
