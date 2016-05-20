@@ -8,11 +8,6 @@ import (
 func extractKeywords(content string) map[string]float64 {
 	counts := map[string]int{}
 	extractLetterKeywords(content, counts)
-	for _, word := range strings.Fields(content) {
-		if !isOnlyLetters(word) {
-			counts[word]++
-		}
-	}
 
 	var totalCount int
 	for _, count := range counts {
@@ -28,27 +23,21 @@ func extractKeywords(content string) map[string]float64 {
 }
 
 func extractLetterKeywords(content string, res map[string]int) {
-	currentWord := ""
-	for _, chr := range content {
-		if unicode.IsLetter(chr) {
-			currentWord += string(chr)
-		} else {
-			if currentWord != "" {
-				res[strings.ToLower(currentWord)]++
-				currentWord = ""
+	wordStart := 0
+	runes := []rune(content)
+	for i, r := range runes {
+		if !unicode.IsLetter(r) {
+			if i > wordStart {
+				word := string(runes[wordStart:i])
+				res[strings.ToLower(word)]++
+				wordStart = i + 1
+			} else {
+				wordStart = i + 1
 			}
 		}
 	}
-	if currentWord != "" {
-		res[strings.ToLower(currentWord)]++
+	if wordStart < len(runes) {
+		word := string(runes[wordStart:])
+		res[strings.ToLower(word)]++
 	}
-}
-
-func isOnlyLetters(s string) bool {
-	for _, r := range s {
-		if !unicode.IsLetter(r) {
-			return false
-		}
-	}
-	return true
 }
