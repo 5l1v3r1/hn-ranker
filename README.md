@@ -1,6 +1,16 @@
-# hn-ranker
+# Abstract
 
-This is an attempt to use Machine Learning to predict the scores which [Hacker News](https://news.ycombinator.com) articles will receive.
+The goal of this project was to predict the scores of [Hacker News](https://news.ycombinator.com) articles. To do this, I tried training a feedforward ANN on two week's worth of Hacker News posts. During preprocessing, articles were decomposed into a list of keyword frequencies which was then fed to the network.
+
+# Results
+
+**Brief summary:** the results were not very impressive. The ANN learned to classify the documents it was trained on, but it did not generalize well to other articles (i.e. it overfit the data).
+
+| Data set | Total | 0-1 | 2-4 | 5-9 | 10-49 | 50+ |
+|----------|-------|-----|-----|-----|-------|-----|
+| Training | 8866/10194 | 4294/4618 | 3455/3810 | 413/675 | 269/485 | 435/606 |
+| Cross    | 2007/4368  | 1126/1980 | 838/1633  | 14/269  | 11/230  | 18/256  |
+
 
 # Usage
 
