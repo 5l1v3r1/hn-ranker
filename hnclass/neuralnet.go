@@ -73,7 +73,11 @@ func (n *NeuralNet) Train(training, crossValidation *TrainingData) {
 }
 
 func (n *NeuralNet) Serialize() []byte {
-	return n.network.Serialize()
+	data, err := n.network.Serialize()
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func (n *NeuralNet) SerializerType() string {
